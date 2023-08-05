@@ -150,7 +150,7 @@ class EncoderVisibleLayer:
 
                 s /= count
 
-                self.reconstruction[vx, vy, vz, vt] = tm.exp(s - 1)
+                self.reconstruction[vx, vy, vz, vt] = ti.cast(tm.exp(s - 1), param_type)
 
                 if s > max_activation:
                     max_activation = s
@@ -174,8 +174,8 @@ class EncoderVisibleLayer:
                     # Weight indices
                     indices = (h_pos.x, h_pos.y, hidden_state, ox, oy, vz, vt)
 
-                    self.weights[indices] += tm.cast(delta * hidden_gates[h_pos.x, h_pos.y], param_type)
-                    self.usages[indices] = tm.cast(tm.min(255, self.usages[indices] + usage_increment), usage_type)
+                    self.weights[indices] += ti.cast(delta * hidden_gates[h_pos.x, h_pos.y], param_type)
+                    self.usages[indices] = ti.cast(tm.min(255, self.usages[indices] + usage_increment), usage_type)
 
     def write_buffers(self, fd: io.IOBase):
         write_from_buffer(fd, self.weights)

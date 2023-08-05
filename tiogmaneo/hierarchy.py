@@ -244,7 +244,7 @@ class Hierarchy:
 
                     t = self.ticks_per_update[i + 1] - 1 - self.ticks[i + 1]
 
-                    self.merge(tm.ivec2(hidden_size[0], hidden_size[1]), self.encoders[i].hidden_states, self.decoders[i + 1][0].hidden_states, self.complete_states[i])
+                    self.concat(tm.ivec2(hidden_size[0], hidden_size[1]), t, self.encoders[i].hidden_states, self.decoders[i + 1][0].hidden_states, self.complete_states[i])
 
                     decoder_visible_states = [ self.complete_states[i] ]
                 else:
