@@ -64,7 +64,7 @@ class DecoderVisibleLayer:
         for hx, hy, hz, ht in ti.ndrange(hidden_size.x, hidden_size.y, hidden_size.z, hidden_size.w):
             h_pos = tm.ivec2(hx, hy)
 
-            v_center = project(h_pos, self.h_to_v)
+            v_center = tm.ivec2((h_pos.x + 0.5) * self.h_to_v.x, (h_pos.y + 0.5) * self.h_to_v.y)
             
             offset_start = v_center - self.radius
 
@@ -73,10 +73,10 @@ class DecoderVisibleLayer:
 
             it_size = it_end - it_start
 
-            s = 0
+            s = 0.0
             count = it_size.x * it_size.y
 
-            for ox, oy in ti.ndrange(it_size):
+            for ox, oy in ti.ndrange(it_size.x, it_size.y):
                 offset = tm.ivec2(ox, oy)
                 v_pos = it_start + offset
 
@@ -94,7 +94,7 @@ class DecoderVisibleLayer:
 
             v_pos = tm.ivec2(vx, vy)
 
-            h_center = project(v_pos, self.v_to_h)
+            h_center = tm.ivec2((v_pos.x + 0.5) * self.v_to_h.x, (v_pos.y + 0.5) * self.v_to_h.y)
             
             offset_start = h_center - self.reverse_radii
 
@@ -106,7 +106,7 @@ class DecoderVisibleLayer:
             s = 0
             count = it_size.x * it_size.y * hidden_size.z * hidden_size.w
 
-            for ox, oy in ti.ndrange(it_size):
+            for ox, oy in ti.ndrange(it_size.x, it_size.y):
                 offset = tm.ivec2(ox, oy)
                 h_pos = it_start + offset
 
@@ -121,7 +121,7 @@ class DecoderVisibleLayer:
         for hx, hy, hz, ht in ti.ndrange(hidden_size.x, hidden_size.y, hidden_size.z, hidden_size.w):
             h_pos = tm.ivec2(hx, hy)
 
-            v_center = project(h_pos, self.h_to_v)
+            v_center = tm.ivec2((h_pos.x + 0.5) * self.h_to_v.x, (h_pos.y + 0.5) * self.h_to_v.y)
             
             offset_start = v_center - self.radius
 
@@ -137,7 +137,7 @@ class DecoderVisibleLayer:
 
             delta = self.lr * (is_target - activations[hx, hy, hz, ht])
 
-            for ox, oy in ti.ndrange(it_size):
+            for ox, oy in ti.ndrange(it_size.x, it_size.y):
                 offset = tm.ivec2(ox, oy)
                 v_pos = it_start + offset
 

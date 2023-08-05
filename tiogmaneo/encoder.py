@@ -63,19 +63,19 @@ class EncoderVisibleLayer:
         for hx, hy, hz in ti.ndrange(hidden_size.x, hidden_size.y, hidden_size.z):
             h_pos = tm.ivec2(hx, hy)
 
-            v_center = project(h_pos, self.h_to_v)
+            v_center = tm.ivec2((h_pos.x + 0.5) * self.h_to_v.x, (h_pos.y + 0.5) * self.h_to_v.y)
             
             offset_start = v_center - self.radius
 
             it_start = tm.ivec2(tm.max(0, offset_start.x), tm.max(0, offset_start.y))
-            it_end = tm.ivec2(tm.min(self.size.x, v_center.x + 1 + self.radius), tm.min(self.size.y, v_center.y + 1 + self.radius))
+            it_end = tm.ivec2(tm.min(self.size[0], v_center.x + 1 + self.radius), tm.min(self.size[1], v_center.y + 1 + self.radius))
 
             it_size = it_end - it_start
 
-            s = 0
+            s = 0.0
             count = it_size.x * it_size.y
 
-            for ox, oy in ti.ndrange(it_size):
+            for ox, oy in ti.ndrange(it_size.x, it_size.y):
                 offset = tm.ivec2(ox, oy)
                 v_pos = it_start + offset
 
@@ -87,16 +87,16 @@ class EncoderVisibleLayer:
             activations[hx, hy, hz] += s / count
 
     @ti.kernel
-    def accum_gates(hidden_size: tm.ivec3, hidden_states: ti.template()):
+    def accum_gates(self, hidden_size: tm.ivec3, hidden_states: ti.template(), hidden_gates: ti.template()):
         for hx, hy in ti.ndrange(hidden_size.x, hidden_size.y):
             h_pos = tm.ivec2(hx, hy)
 
-            v_center = project(h_pos, self.h_to_v)
+            v_center = tm.ivec2((h_pos.x + 0.5) * self.h_to_v.x, (h_pos.y + 0.5) * self.h_to_v.y)
             
             offset_start = v_center - self.radius
 
             it_start = tm.ivec2(tm.max(0, offset_start.x), tm.max(0, offset_start.y))
-            it_end = tm.ivec2(tm.min(self.size.x, v_center.x + 1 + self.radius), tm.min(self.size.y, v_center.y + 1 + self.radius))
+            it_end = tm.ivec2(tm.min(self.size[0], v_center.x + 1 + self.radius), tm.min(self.size[1], v_center.y + 1 + self.radius))
 
             it_size = it_end - it_start
 
@@ -105,7 +105,7 @@ class EncoderVisibleLayer:
             s = 0
             count = it_size.x * it_size.y * self.size[2] * self.size[3]
 
-            for ox, oy in ti.ndrange(it_size):
+            for ox, oy in ti.ndrange(it_size.x, it_size.y):
                 offset = tm.ivec2(ox, oy)
                 v_pos = it_start + offset
 
@@ -113,21 +113,21 @@ class EncoderVisibleLayer:
                     for vt in range(self.size[3]):
                         s += self.usages[hx, hy, hidden_state, ox, oy, vz, vt]
 
-            self.hidden_gates[hx, hy] += s / count
+            hidden_gates[hx, hy] += ti.cast(s / count, param_type)
 
     @ti.kernel
-    def learn(self, hidden_size: tm.ivec3, vt_start: int, visible_states: ti.template()):
+    def learn(self, hidden_size: tm.ivec3, vt_start: int, hidden_states: ti.template(), visible_states: ti.template(), hidden_gates: ti.template()):
         for vx, vy, vt in ti.ndrange(self.size[0], self.size[1], self.size[3]):
             visible_state = visible_states[vx, vy, (vt_start + vt) % self.size[3]]
 
             v_pos = tm.ivec2(vx, vy)
 
-            h_center = project(v_pos, self.v_to_h)
+            h_center = tm.ivec2((v_pos.x + 0.5) * self.v_to_h.x, (v_pos.y + 0.5) * self.v_to_h.y)
             
             offset_start = h_center - self.reverse_radii
 
             it_start = tm.ivec2(tm.max(0, offset_start.x), tm.max(0, offset_start.y))
-            it_end = tm.ivec2(tm.min(self.hidden_size.x, h_center.x + 1 + self.reverse_radii.x), tm.min(self.hidden_size.y, v_center.y + 1 + self.reverse_radii.y))
+            it_end = tm.ivec2(tm.min(hidden_size.x, h_center.x + 1 + self.reverse_radii.x), tm.min(hidden_size.y, v_center.y + 1 + self.reverse_radii.y))
 
             it_size = it_end - it_start
 
@@ -138,13 +138,13 @@ class EncoderVisibleLayer:
 
             # Reconstruct
             for vz in range(self.size[2]):
-                s = 0
+                s = 0.0
 
-                for ox, oy in ti.ndrange(it_size):
+                for ox, oy in ti.ndrange(it_size.x, it_size.y):
                     offset = tm.ivec2(ox, oy)
                     h_pos = it_start + offset
 
-                    hidden_state = self.hidden_states[h_pos.x, h_pos.y]
+                    hidden_state = hidden_states[h_pos.x, h_pos.y]
 
                     s += self.weights[h_pos.x, h_pos.y, hidden_state, ox, oy, vz, vt]
 
@@ -165,16 +165,16 @@ class EncoderVisibleLayer:
 
                 delta = self.lr * modulation * (is_target - self.reconstruction[vx, vy, vz, vt])
 
-                for ox, oy in ti.ndrange(it_size):
+                for ox, oy in ti.ndrange(it_size.x, it_size.y):
                     offset = tm.ivec2(ox, oy)
                     h_pos = it_start + offset
 
-                    hidden_state = self.hidden_states[h_pos.x, h_pos.y]
+                    hidden_state = hidden_states[h_pos.x, h_pos.y]
 
                     # Weight indices
                     indices = (h_pos.x, h_pos.y, hidden_state, ox, oy, vz, vt)
 
-                    self.weights[indices] += delta * self.hidden_gates[h_pos.x, h_pos.y]
+                    self.weights[indices] += delta * hidden_gates[h_pos.x, h_pos.y]
                     self.usages[indices] = tm.min(255, self.usages[indices] + usage_increment)
 
     def write_buffers(self, fd: io.IOBase):
@@ -199,9 +199,9 @@ class Encoder:
             self.hidden_states[hx, hy] = max_index
 
     @ti.kernel
-    def update_gates(self, hidden_size: tm.ivec3):
+    def update_gates(self):
         for hx, hy in ti.ndrange(self.hidden_size[0], self.hidden_size[1]):
-            self.hidden_gates[hx, hy] = tm.exp(-self.hidden_gates[hx, hy] / len(self.vls) * self.gcurve)
+            self.hidden_gates[hx, hy] = ti.cast(tm.exp(-self.hidden_gates[hx, hy] / len(self.vls) * self.gcurve), param_type)
 
     def __init__(self, hidden_size: (int, int, int) = (4, 4, 16), vlds: [ EncoderVisibleLayerDesc ] = [], fd: io.IOBase = None):
         if fd is None:
@@ -274,12 +274,12 @@ class Encoder:
 
             # Accumulate gates for all visible layers
             for vl in self.vls:
-                vl.accum_gates(self.hidden_size, self.hidden_states)
+                vl.accum_gates(self.hidden_size, self.hidden_states, self.hidden_gates)
 
             self.update_gates()
 
-            for vl in self.vls:
-                vl.learn(self.hidden_size, vt_start, visible_states[i])
+            for i, vl in enumerate(self.vls):
+                vl.learn(self.hidden_size, vt_start, self.hidden_states, visible_states[i], self.hidden_gates)
 
     def write(self, fd: io.IOBase):
         fd.write(struct.pack("iii", *self.hidden_size))
