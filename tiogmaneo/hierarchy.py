@@ -110,6 +110,8 @@ class Hierarchy:
 
                 if i < len(lds) - 1:
                     self.complete_states.append(ti.field(state_type, shape=(self.lds[i].hidden_size[0], self.lds[i].hidden_size[1], 2)))
+                else:
+                    self.complete_states.append(ti.field(state_type, shape=(self.lds[i].hidden_size[0], self.lds[i].hidden_size[1], 1)))
 
             self.ticks = len(lds) * [ 0 ]
             self.ticks_per_update = [ lds[i].ticks_per_update for i in range(len(lds)) ]
@@ -184,6 +186,8 @@ class Hierarchy:
 
                 if i < len(self.lds) - 1:
                     self.complete_states.append(ti.field(state_type, shape=(self.lds[i].hidden_size[0], self.lds[i].hidden_size[1], 2)))
+                else:
+                    self.complete_states.append(ti.field(state_type, shape=(self.lds[i].hidden_size[0], self.lds[i].hidden_size[1], 1)))
 
             self.ticks = read_array(fd, num_layers, np.int32).tolist()
             self.ticks_per_update = read_array(fd, num_layers, np.int32).tolist()
@@ -248,7 +252,11 @@ class Hierarchy:
 
                     decoder_visible_states = [ self.complete_states[i] ]
                 else:
-                    decoder_visible_states = [ self.encoders[i].hidden_states ]
+                    hidden_size = self.encoders[i].hidden_size
+
+                    self.set_time(tm.ivec2(hidden_size[0], hidden_size[1]), 0, self.encoders[i].hidden_states, self.complete_states[i])
+
+                    decoder_visible_states = [ self.complete_states[i] ]
 
                 if i == 0:
                     for j in range(len(self.io_descs)):
