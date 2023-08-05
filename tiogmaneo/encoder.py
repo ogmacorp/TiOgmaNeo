@@ -55,7 +55,7 @@ class EncoderVisibleLayer:
     @ti.kernel
     def init_random(self):
         for hx, hy, hz, ox, oy, vz, vt in self.weights:
-            self.weights[hx, hy, hz, ox, oy, vz, vt] = ti.random()
+            self.weights[hx, hy, hz, ox, oy, vz, vt] = ti.cast(ti.random(), param_type)
 
     # Stepping
     @ti.kernel

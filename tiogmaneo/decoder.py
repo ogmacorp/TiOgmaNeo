@@ -56,7 +56,7 @@ class DecoderVisibleLayer:
     @ti.kernel
     def init_random(self):
         for hx, hy, hz, ht, ox, oy, vz, vt in self.weights:
-            self.weights[hx, hy, hz, ht, ox, oy, vz, vt] = (ti.random() * 2.0 - 1.0) * 0.01
+            self.weights[hx, hy, hz, ht, ox, oy, vz, vt] = ti.cast((ti.random(dtype=param_type) * 2.0 - 1.0) * 0.01, param_type)
 
     # Stepping
     @ti.kernel
