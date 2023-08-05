@@ -73,7 +73,7 @@ class EncoderVisibleLayer:
             it_size = it_end - it_start
 
             s = 0.0
-            count = it_size.x * it_size.y
+            count = it_size.x * it_size.y * self.size[3]
 
             for ox, oy in ti.ndrange(it_size.x, it_size.y):
                 offset = tm.ivec2(ox, oy)
@@ -131,14 +131,13 @@ class EncoderVisibleLayer:
 
             it_size = it_end - it_start
 
-            count = it_size.x * it_size.y
-
             max_index = 0
             max_activation = limit_min
 
             # Reconstruct
             for vz in range(self.size[2]):
                 s = 0.0
+                count = 0
 
                 for hox, hoy in ti.ndrange(it_size.x, it_size.y):
                     h_offset = tm.ivec2(hox, hoy)
@@ -152,6 +151,7 @@ class EncoderVisibleLayer:
                         v_offset = tm.ivec2(v_pos.x - v_center.x + self.radius, v_pos.y - v_center.y + self.radius)
 
                         s += self.weights[h_pos.x, h_pos.y, hidden_state, v_offset.x, v_offset.y, vz, vt]
+                        count += 1
 
                 s /= count
 

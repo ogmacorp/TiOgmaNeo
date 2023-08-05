@@ -74,7 +74,7 @@ class DecoderVisibleLayer:
             it_size = it_end - it_start
 
             s = 0.0
-            count = it_size.x * it_size.y
+            count = it_size.x * it_size.y * self.size[3]
 
             for ox, oy in ti.ndrange(it_size.x, it_size.y):
                 offset = tm.ivec2(ox, oy)
