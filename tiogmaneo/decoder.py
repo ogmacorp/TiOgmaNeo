@@ -15,7 +15,6 @@ from .helpers import *
 
 @ti.data_oriented
 class Decoder:
-    @ti.dataclass
     class VisibleLayerDesc:
         size: (int, int, int, int) = (4, 4, 16, 1) # Width, height, column size, temporal size
         radius: int = 2
@@ -32,7 +31,7 @@ class Decoder:
 
     # Initialization
     @ti.kernel
-    def init(i: int):
+    def init(self, i: int):
         vl = self.vls[i]
 
         for hx, hy, hz, ht, ox, oy, vz, vt in weights:
@@ -40,7 +39,7 @@ class Decoder:
 
     # Stepping
     @ti.kernel
-    def accum_activations(i: int, vt_start: int, visible_states: ti.Field):
+    def accum_activations(self, i: int, vt_start: int, visible_states: ti.template()):
         vld = self.vlds[i]
         vl = self.vls[i]
 
@@ -71,7 +70,7 @@ class Decoder:
             self.activations[hx, hy, hz, ht] += s / count
 
     @ti.kernel
-    def activate():
+    def activate(self):
         for hx, hy, ht in ti.ndrange(self.hidden_size[0], self.hidden_size[1], self.hidden_size[3]):
             max_index = 0
             max_activation = limit_min
@@ -99,7 +98,7 @@ class Decoder:
                 self.activations[hx, hy, hz, ht] *= total_inv
 
     @ti.kernel
-    def update_gates(i: int, vt_start: int):
+    def update_gates(self, i: int, vt_start: int):
         vld = self.vlds[i]
         vl = self.vls[i]
 
@@ -131,7 +130,7 @@ class Decoder:
             self.visible_gates[vx, vy, vt] = tm.exp(-s / count * self.gcurve)
 
     @ti.kernel
-    def learn(i: int, vt_start: int, ht_start: int, target_temporal_horizon: int, target_hidden_states: ti.Field):
+    def learn(self, i: int, vt_start: int, ht_start: int, target_temporal_horizon: int, target_hidden_states: ti.template()):
         vld = self.vlds[i]
         vl = self.vls[i]
 

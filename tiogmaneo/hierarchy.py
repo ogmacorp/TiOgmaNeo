@@ -15,6 +15,7 @@ import struct
 from .helpers import *
 
 from enum import IntEnum
+from dataclasses import dataclass
 
 from .encoder import Encoder
 from .decoder import Decoder

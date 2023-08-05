@@ -15,7 +15,6 @@ from .helpers import *
 
 @ti.data_oriented
 class Encoder:
-    @ti.dataclass
     class VisibleLayerDesc:
         size: (int, int, int, int) = (4, 4, 16, 1) # Width, height, column size, temporal size
         radius: int = 2
@@ -32,7 +31,7 @@ class Encoder:
 
     # Initialization
     @ti.kernel
-    def init(i: int):
+    def init(self, i: int):
         vl = self.vls[i]
 
         for hx, hy, hz, ox, oy, vz, vt in weights:
@@ -40,7 +39,7 @@ class Encoder:
 
     # Stepping
     @ti.kernel
-    def accum_activations(i: int, vt_start: int, visible_states: ti.Field):
+    def accum_activations(self, i: int, vt_start: int, visible_states: ti.template()):
         vld = self.vlds[i]
         vl = self.vls[i]
 
@@ -71,7 +70,7 @@ class Encoder:
             self.activations[hx, hy, hz] += s / count * vld.importance
 
     @ti.kernel
-    def activate():
+    def activate(self):
         for hx, hy in ti.ndrange(self.hidden_size[0], self.hidden_size[1]):
             max_index = 0
             max_activation = limit_min
@@ -86,7 +85,7 @@ class Encoder:
             self.hidden_states[hx, hy] = max_index
 
     @ti.kernel
-    def accum_gates(i: int):
+    def accum_gates(self, i: int):
         vld = self.vlds[i]
         vl = self.vls[i]
 
@@ -118,12 +117,12 @@ class Encoder:
             self.hidden_gates[hx, hy] += s / count
 
     @ti.kernel
-    def update_gates():
+    def update_gates(self):
         for hx, hy in ti.ndrange(self.hidden_size[0], self.hidden_size[1]):
             self.hidden_gates[hx, hy] = tm.exp(-self.hidden_gates[hx, hy] / len(self.vls) * self.gcurve)
 
     @ti.kernel
-    def learn(i: int, vt_start: int, visible_states: ti.Field):
+    def learn(self, i: int, vt_start: int, visible_states: ti.template()):
         vld = self.vlds[i]
         vl = self.vls[i]
 
