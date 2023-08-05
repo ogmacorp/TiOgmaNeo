@@ -61,12 +61,12 @@ class Hierarchy:
                     # For each IO layer
                     for j in range(len(io_descs)):
                         # For each timestep
-                        e_vlds.append(Encoder.VisibleLayerDesc(size=(io_descs[j].size[0], io_descs[j].size[1], io_descs[j].size[2], lds[i].temporal_horizon), radius=io_descs[j].up_radius, importance=1.0))
+                        e_vlds.append(EncoderVisibleLayerDesc(size=(io_descs[j].size[0], io_descs[j].size[1], io_descs[j].size[2], lds[i].temporal_horizon), radius=io_descs[j].up_radius, importance=1.0))
 
                         io_history.append(ti.field(state_type, shape=(io_descs[j].size[0], io_descs[j].size[1], lds[i].temporal_horizon)))
 
                         if io_descs[j].t == IOType.PREDICTION:
-                            d_vld = Decoder.VisibleLayerDesc(size=(lds[i].hidden_size[0], lds[i].hidden_size[1], lds[i].hidden_size[2], 2 if i < len(lds) - 1 else 1), radius=io_descs[j].down_radius)
+                            d_vld = DecoderVisibleLayerDesc(size=(lds[i].hidden_size[0], lds[i].hidden_size[1], lds[i].hidden_size[2], 2 if i < len(lds) - 1 else 1), radius=io_descs[j].down_radius)
 
                             io_decoders.append(Decoder((io_descs[j].size[0], io_descs[j].size[1], io_descs[j].size[2], 1), [ d_vld ]))
                         else:
@@ -79,9 +79,9 @@ class Hierarchy:
 
                     io_history.append(ti.field(state_type, shape=(lds[i - 1].hidden_size[0], lds[i - 1].hidden_size[1], lds[i].temporal_horizon)))
 
-                    e_vlds = [ Encoder.VisibleLayerDesc(size=(lds[i - 1].hidden_size[0], lds[i - 1].hidden_size[1], lds[i - 1].hidden_size[2], lds[i].temporal_horizon), radius=lds[i].up_radius, importance=1.0) ]
+                    e_vlds = [ EncoderVisibleLayerDesc(size=(lds[i - 1].hidden_size[0], lds[i - 1].hidden_size[1], lds[i - 1].hidden_size[2], lds[i].temporal_horizon), radius=lds[i].up_radius, importance=1.0) ]
 
-                    d_vld = Decoder.VisibleLayerDesc(size=(lds[i].hidden_size[0], lds[i].hidden_size[1], lds[i].hidden_size[2], 2 if i < len(lds) - 1 else 1), radius=lds[i].down_radius)
+                    d_vld = DecoderVisibleLayerDesc(size=(lds[i].hidden_size[0], lds[i].hidden_size[1], lds[i].hidden_size[2], 2 if i < len(lds) - 1 else 1), radius=lds[i].down_radius)
 
                     temporal_decoders = [ Decoder((lds[i - 1].hidden_size[0], lds[i - 1].hidden_size[1], lds[i - 1].hidden_size[2], lds[i].ticks_per_update), [ d_vld ]) ]
 

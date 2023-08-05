@@ -11,47 +11,64 @@ import taichi.math as tm
 import math
 import io
 import struct
+from dataclasses import dataclass
 from .helpers import *
 
+@dataclass
+class EncoderVisibleLayerDesc:
+    size: (int, int, int, int) = (4, 4, 16, 1) # Width, height, column size, temporal size
+    radius: int = 2
+    importance: float = 1.0
+
 @ti.data_oriented
-class Encoder:
-    class VisibleLayerDesc:
-        size: (int, int, int, int) = (4, 4, 16, 1) # Width, height, column size, temporal size
-        radius: int = 2
-        importance: float = 1.0
+class EncoderVisibleLayer:
+    weights: ti.Field
+    usages: ti.Field
+    reconstruction: ti.Field
 
-    class VisibleLayer:
-        weights: ti.Field
-        usages: ti.Field
-        reconstruction: ti.Field
+    size: (int, int, int, int)
+    radius: int
+    importance: float
+    h_to_v: tm.vec2
+    v_to_h: tm.vec2
+    reverse_radii: tm.ivec2
 
-        h_to_v: tm.vec2
-        v_to_h: tm.vec2
-        reverse_radii: tm.ivec2
+    def __init__(self, hidden_size: (int, int, int), desc: EncoderVisibleLayerDesc):
+        self.size = desc.size
+        self.radius = desc.radius
+        self.importance = desc.importance
+
+        diam = self.radius * 2 + 1
+
+        self.weights = ti.field(param_type, shape=(hidden_size[0], hidden_size[1], hidden_size[2], diam, diam, self.size[2], self.size[3]))
+
+        self.usages = ti.field(usage_type, shape=self.weights.shape)
+        self.usages.fill(0)
+
+        self.reconstruction = ti.field(param_type, shape=vld.size)
+
+        self.h_to_v = tm.vec2(self.size[0] / hidden_size[0], self.size[1] / hidden_size[1])
+        self.v_to_h = tm.vec2(hidden_size[0] / self.size[0], hidden_size[1] / self.size[1])
+        self.reverse_radii = tm.ivec2(math.ceil(self.v_to_h.x * diam * 0.5), math.ceil(self.v_to_h.y * diam * 0.5))
 
     # Initialization
     @ti.kernel
-    def init(self, i: int):
-        vl = self.vls[i]
-
-        for hx, hy, hz, ox, oy, vz, vt in weights:
-            vl.weights[hx, hy, hz, ox, oy, vz, vt] = ti.random()
+    def init_random(self):
+        for hx, hy, hz, ox, oy, vz, vt in self.weights:
+            self.weights[hx, hy, hz, ox, oy, vz, vt] = ti.random()
 
     # Stepping
     @ti.kernel
-    def accum_activations(self, i: int, vt_start: int, visible_states: ti.template()):
-        vld = self.vlds[i]
-        vl = self.vls[i]
-
-        for hx, hy, hz in ti.ndrange(self.hidden_size):
+    def accum_activations(self, hidden_size: tm.ivec3, vt_start: int, visible_states: ti.template(), activations: ti.template()):
+        for hx, hy, hz in ti.ndrange(hidden_size):
             h_pos = tm.ivec2(hx, hy)
 
-            v_center = project(h_pos, vld.h_to_v)
+            v_center = project(h_pos, self.h_to_v)
             
-            offset_start = v_center - vld.radius
+            offset_start = v_center - self.radius
 
             it_start = tm.ivec2(tm.max(0, offset_start.x), tm.max(0, offset_start.y))
-            it_end = tm.ivec2(tm.min(vld.size.x, v_center.x + 1 + vld.radius), tm.min(vld.size.y, v_center.y + 1 + vld.radius))
+            it_end = tm.ivec2(tm.min(self.size.x, v_center.x + 1 + self.radius), tm.min(self.size.y, v_center.y + 1 + self.radius))
 
             it_size = it_end - it_start
 
@@ -62,13 +79,110 @@ class Encoder:
                 offset = tm.ivec2(ox, oy)
                 v_pos = it_start + offset
 
-                for vt in range(vld.size[3]):
-                    visible_state = visible_states[v_pos.x, v_pos.y, (vt_start + vt) % vld.size[3]]
+                for vt in range(self.size[3]):
+                    visible_state = visible_states[v_pos.x, v_pos.y, (vt_start + vt) % self.size[3]]
 
-                    s += vl.weights[hx, hy, hz, ox, oy, visible_state, vt]
+                    s += self.weights[hx, hy, hz, ox, oy, visible_state, vt]
 
-            self.activations[hx, hy, hz] += s / count * vld.importance
+            activations[hx, hy, hz] += s / count
 
+    @ti.kernel
+    def accum_gates(hidden_size: (int, int, int), hidden_states: ti.template()):
+        for hx, hy in ti.ndrange(hidden_size[0], hidden_size[1]):
+            h_pos = tm.ivec2(hx, hy)
+
+            v_center = project(h_pos, self.h_to_v)
+            
+            offset_start = v_center - self.radius
+
+            it_start = tm.ivec2(tm.max(0, offset_start.x), tm.max(0, offset_start.y))
+            it_end = tm.ivec2(tm.min(self.size.x, v_center.x + 1 + self.radius), tm.min(self.size.y, v_center.y + 1 + self.radius))
+
+            it_size = it_end - it_start
+
+            hidden_state = hidden_states[hx, hy]
+
+            s = 0
+            count = it_size.x * it_size.y * self.size[2] * self.size[3]
+
+            for ox, oy in ti.ndrange(it_size):
+                offset = tm.ivec2(ox, oy)
+                v_pos = it_start + offset
+
+                for vz in range(self.size[2]):
+                    for vt in range(self.size[3]):
+                        s += self.usages[hx, hy, hidden_state, ox, oy, vz, vt]
+
+            self.hidden_gates[hx, hy] += s / count
+
+    @ti.kernel
+    def learn(self, i: int, vt_start: int, visible_states: ti.template()):
+        for vx, vy, vt in ti.ndrange(self.size[0], self.size[1], self.size[3]):
+            visible_state = visible_states[vx, vy, (vt_start + vt) % self.size[3]]
+
+            v_pos = tm.ivec2(vx, vy)
+
+            h_center = project(v_pos, self.v_to_h)
+            
+            offset_start = h_center - self.reverse_radii
+
+            it_start = tm.ivec2(tm.max(0, offset_start.x), tm.max(0, offset_start.y))
+            it_end = tm.ivec2(tm.min(self.hidden_size[0], h_center.x + 1 + self.reverse_radii.x), tm.min(self.hidden_size[1], v_center.y + 1 + self.reverse_radii.y))
+
+            it_size = it_end - it_start
+
+            count = it_size.x * it_size.y
+
+            max_index = 0
+            max_activation = limit_min
+
+            # Reconstruct
+            for vz in range(self.size[2]):
+                s = 0
+
+                for ox, oy in ti.ndrange(it_size):
+                    offset = tm.ivec2(ox, oy)
+                    h_pos = it_start + offset
+
+                    hidden_state = self.hidden_states[h_pos.x, h_pos.y]
+
+                    s += self.weights[h_pos.x, h_pos.y, hidden_state, ox, oy, vz, vt]
+
+                s /= count
+
+                self.reconstruction[vx, vy, vz, vt] = tm.exp(s - 1)
+
+                if s > max_activation:
+                    max_activation = s
+                    max_index = vz
+
+            # Update, if not early stopped
+            for vz in range(self.size[2]):
+                is_target = float(vz == visible_state)
+                usage_increment = int(is_target)
+
+                modulation = float(max_index != visible_state)
+
+                delta = self.lr * modulation * (is_target - self.reconstruction[vx, vy, vz, vt])
+
+                for ox, oy in ti.ndrange(it_size):
+                    offset = tm.ivec2(ox, oy)
+                    h_pos = it_start + offset
+
+                    hidden_state = self.hidden_states[h_pos.x, h_pos.y]
+
+                    # Weight indices
+                    indices = (h_pos.x, h_pos.y, hidden_state, ox, oy, vz, vt)
+
+                    self.weights[indices] += delta * self.hidden_gates[h_pos.x, h_pos.y]
+                    self.usages[indices] = tm.min(255, self.usages[indices] + usage_increment)
+
+    def write_buffers(self, fd: io.IOBase):
+        write_from_buffer(fd, self.weights)
+        write_from_buffer(fd, self.usages)
+
+@ti.data_oriented
+class Encoder:
     @ti.kernel
     def activate(self):
         for hx, hy in ti.ndrange(self.hidden_size[0], self.hidden_size[1]):
@@ -85,106 +199,9 @@ class Encoder:
             self.hidden_states[hx, hy] = max_index
 
     @ti.kernel
-    def accum_gates(self, i: int):
-        vld = self.vlds[i]
-        vl = self.vls[i]
-
-        for hx, hy in ti.ndrange(self.hidden_size[0], self.hidden_size[1]):
-            h_pos = tm.ivec2(hx, hy)
-
-            v_center = project(h_pos, vld.h_to_v)
-            
-            offset_start = v_center - vld.radius
-
-            it_start = tm.ivec2(tm.max(0, offset_start.x), tm.max(0, offset_start.y))
-            it_end = tm.ivec2(tm.min(vld.size.x, v_center.x + 1 + vld.radius), tm.min(vld.size.y, v_center.y + 1 + vld.radius))
-
-            it_size = it_end - it_start
-
-            hidden_state = self.hidden_states[hx, hy]
-
-            s = 0
-            count = it_size.x * it_size.y * vld.size[2] * vld.size[3]
-
-            for ox, oy in ti.ndrange(it_size):
-                offset = tm.ivec2(ox, oy)
-                v_pos = it_start + offset
-
-                for vz in range(vld.size[2]):
-                    for vt in range(vld.size[3]):
-                        s += vl.usages[hx, hy, hidden_state, ox, oy, vz, vt]
-
-            self.hidden_gates[hx, hy] += s / count
-
-    @ti.kernel
-    def update_gates(self):
+    def update_gates(self, hidden_size: (int, int, int)):
         for hx, hy in ti.ndrange(self.hidden_size[0], self.hidden_size[1]):
             self.hidden_gates[hx, hy] = tm.exp(-self.hidden_gates[hx, hy] / len(self.vls) * self.gcurve)
-
-    @ti.kernel
-    def learn(self, i: int, vt_start: int, visible_states: ti.template()):
-        vld = self.vlds[i]
-        vl = self.vls[i]
-
-        for vx, vy, vt in ti.ndrange(vld.size[0], vld.size[1], vld.size[3]):
-            visible_state = visible_states[vx, vy, (vt_start + vt) % vld.size[3]]
-
-            v_pos = tm.ivec2(vx, vy)
-
-            h_center = project(v_pos, vld.v_to_h)
-            
-            offset_start = h_center - vl.reverse_radii
-
-            it_start = tm.ivec2(tm.max(0, offset_start.x), tm.max(0, offset_start.y))
-            it_end = tm.ivec2(tm.min(self.hidden_size[0], h_center.x + 1 + vl.reverse_radii.x), tm.min(self.hidden_size[1], v_center.y + 1 + vl.reverse_radii.y))
-
-            it_size = it_end - it_start
-
-            count = it_size.x * it_size.y
-
-            max_index = 0
-            max_activation = limit_min
-
-            # Reconstruct
-            for vz in range(vld.size[2]):
-                s = 0
-
-                for ox, oy in ti.ndrange(it_size):
-                    offset = tm.ivec2(ox, oy)
-                    h_pos = it_start + offset
-
-                    hidden_state = self.hidden_states[h_pos.x, h_pos.y]
-
-                    s += vl.weights[h_pos.x, h_pos.y, hidden_state, ox, oy, vz, vt]
-
-                s /= count
-
-                vl.reconstruction[vx, vy, vz, vt] = tm.exp(s - 1)
-
-                if s > max_activation:
-                    max_activation = s
-                    max_index = vz
-
-            # Update, if not early stopped
-            for vz in range(vld.size[2]):
-                is_target = float(vz == visible_state)
-                usage_increment = int(is_target)
-
-                modulation = float(max_index != visible_state)
-
-                delta = self.lr * modulation * (is_target - vl.reconstruction[vx, vy, vz, vt])
-
-                for ox, oy in ti.ndrange(it_size):
-                    offset = tm.ivec2(ox, oy)
-                    h_pos = it_start + offset
-
-                    hidden_state = self.hidden_states[h_pos.x, h_pos.y]
-
-                    # Weight indices
-                    indices = (h_pos.x, h_pos.y, hidden_state, ox, oy, vz, vt)
-
-                    vl.weights[indices] += delta * self.hidden_gates[h_pos.x, h_pos.y]
-                    vl.usages[indices] = tm.min(255, vl.usages[indices] + usage_increment)
 
     def __init__(self, hidden_size: (int, int, int) = (4, 4, 16), vlds: [ VisibleLayerDesc ] = [], fd: io.IOBase = None):
         if fd is None:
@@ -198,29 +215,11 @@ class Encoder:
 
             self.hidden_gates = ti.field(param_type, shape=(hidden_size[0], hidden_size[1]))
 
-            self.vlds = vlds
-            self.vls = []
+            for vld in vlds:
+                self.vls.append(EncoderVisibleLayer(hidden_size, vld))
 
-            for i in range(len(vlds)):
-                vld = self.vlds[i]
-                vl = self.VisibleLayer()
-
-                diam = vld.radius * 2 + 1
-
-                vl.weights = ti.field(param_type, shape=(hidden_size[0], hidden_size[1], hidden_size[2], diam, diam, vld.size[2], vld.size[3]))
-
-                vl.usages = ti.field(usage_type, shape=vl.weights.shape)
-                vl.usages.fill(0)
-
-                vl.reconstruction = ti.field(param_type, shape=vld.size)
-
-                vl.h_to_v = tm.vec2(vld.size[0] / hidden_size[0], vld.size[1] / hidden_size[1])
-                vl.v_to_h = tm.vec2(hidden_size[0] / vld.size[0], hidden_size[1] / vld.size[1])
-                vl.reverse_radii = tm.ivec2(math.ceil(vl.v_to_h.x * diam * 0.5), math.ceilf(vl.v_to_h.y * diam * 0.5))
-
-                self.init(i)
-
-                self.vls.append(vl)
+            for vl in self.vls:
+                vl.init_random()
 
             # Hyperparameters
             self.lr = 0.5
@@ -239,32 +238,17 @@ class Encoder:
 
             self.hidden_gates = ti.field(param_type, shape=(self.hidden_size[0], self.hidden_size[1]))
 
-            self.vlds = []
-            self.vls = []
-
             for i in range(num_visible_layers):
-                vld = self.VisibleLayerDesc()
-                vl = self.VisibleLayer()
+                vld = EncoderVisibleLayerDesc()
 
                 vld.size = struct.unpack("iiii", fd.read(4 * np.dtype(np.int32).itemsize))
                 vld.radius, vld.importance = struct.unpack("if", fd.read(np.dtype(np.int32).itemsize + np.dtype(np.float32).itemsize))
 
-                num_visible_columns = vld.size[0] * vld.size[1] * vld.size[3]
-                num_visible_cells = num_visible_columns * vld.size[2]
+                vl = EncoderVisibleLayer(self.hidden_size, vld)
 
-                vl.weights = ti.field(param_type, shape=(self.hidden_size[0], self.hidden_size[1], self.hidden_size[2], diam, diam, vld.size[2], vld.size[3]))
                 read_into_buffer(fd, vl.weights)
-
-                vl.usages = ti.field(usage_type, shape=vl.weights.shape)
                 read_into_buffer(fd, vl.usages)
 
-                vl.reconstruction = ti.field(param_type, shape=vld.size)
-
-                vl.h_to_v = tm.vec2(vld.size[0] / self.hidden_size[0], vld.size[1] / self.hidden_size[1])
-                vl.v_to_h = tm.vec2(self.hidden_size[0] / vld.size[0], self.hidden_size[1] / vld.size[1])
-                vl.reverse_radii = tm.ivec2(math.ceil(vl.v_to_h.x * diam * 0.5), math.ceilf(vl.v_to_h.y * diam * 0.5))
-
-                self.vlds.append(vld)
                 self.vls.append(vl)
 
             # Parameters
@@ -308,8 +292,7 @@ class Encoder:
 
             fd.write(struct.pack("iiiiif", *vld.size, vld.radius, vld.importance))
 
-            write_from_buffer(fd, vl.weights)
-            write_from_buffer(fd, vl.usages)
+            vl.write_buffers(fd)
 
         fd.write(struct.pack("ff", self.lr, self.gcurve))
 
