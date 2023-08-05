@@ -140,13 +140,18 @@ class EncoderVisibleLayer:
             for vz in range(self.size[2]):
                 s = 0.0
 
-                for ox, oy in ti.ndrange(it_size.x, it_size.y):
-                    offset = tm.ivec2(ox, oy)
-                    h_pos = it_start + offset
+                for hox, hoy in ti.ndrange(it_size.x, it_size.y):
+                    h_offset = tm.ivec2(hox, hoy)
+                    h_pos = it_start + h_offset
 
-                    hidden_state = hidden_states[h_pos.x, h_pos.y]
+                    v_center = tm.ivec2((h_pos.x + 0.5) * self.h_to_v.x, (h_pos.y + 0.5) * self.h_to_v.y)
 
-                    s += self.weights[h_pos.x, h_pos.y, hidden_state, ox, oy, vz, vt]
+                    if v_pos.x >= v_center.x - self.radius and v_pos.y >= v_center.y - self.radius and v_pos.x <= v_center.x + self.radius and v_pos.y <= v_center.y + self.radius:
+                        hidden_state = hidden_states[h_pos.x, h_pos.y]
+
+                        v_offset = tm.ivec2(v_pos.x - v_center.x + self.radius, v_pos.y - v_center.y + self.radius)
+
+                        s += self.weights[h_pos.x, h_pos.y, hidden_state, v_offset.x, v_offset.y, vz, vt]
 
                 s /= count
 
@@ -165,17 +170,22 @@ class EncoderVisibleLayer:
 
                 delta = lr * modulation * (is_target - self.reconstruction[vx, vy, vz, vt])
 
-                for ox, oy in ti.ndrange(it_size.x, it_size.y):
-                    offset = tm.ivec2(ox, oy)
-                    h_pos = it_start + offset
+                for hox, hoy in ti.ndrange(it_size.x, it_size.y):
+                    h_offset = tm.ivec2(hox, hoy)
+                    h_pos = it_start + h_offset
 
-                    hidden_state = hidden_states[h_pos.x, h_pos.y]
+                    v_center = tm.ivec2((h_pos.x + 0.5) * self.h_to_v.x, (h_pos.y + 0.5) * self.h_to_v.y)
 
-                    # Weight indices
-                    indices = (h_pos.x, h_pos.y, hidden_state, ox, oy, vz, vt)
+                    if v_pos.x >= v_center.x - self.radius and v_pos.y >= v_center.y - self.radius and v_pos.x <= v_center.x + self.radius and v_pos.y <= v_center.y + self.radius:
+                        hidden_state = hidden_states[h_pos.x, h_pos.y]
 
-                    self.weights[indices] += ti.cast(delta * hidden_gates[h_pos.x, h_pos.y], param_type)
-                    self.usages[indices] = ti.cast(tm.min(usage_max, self.usages[indices] + usage_increment), usage_type)
+                        v_offset = tm.ivec2(v_pos.x - v_center.x + self.radius, v_pos.y - v_center.y + self.radius)
+
+                        # Weight indices
+                        indices = (h_pos.x, h_pos.y, hidden_state, v_offset.x, v_offset.y, vz, vt)
+
+                        self.weights[indices] += ti.cast(delta * hidden_gates[h_pos.x, h_pos.y], param_type)
+                        self.usages[indices] = ti.cast(tm.min(usage_max, self.usages[indices] + usage_increment), usage_type)
 
     def write_buffers(self, fd: io.IOBase):
         write_from_buffer(fd, self.weights)

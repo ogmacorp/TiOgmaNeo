@@ -56,7 +56,7 @@ class DecoderVisibleLayer:
     @ti.kernel
     def init_random(self):
         for hx, hy, hz, ht, ox, oy, vz, vt in self.weights:
-            self.weights[hx, hy, hz, ht, ox, oy, vz, vt] = ti.cast((ti.random(dtype=param_type) * 2.0 - 1.0) * 0.01, param_type)
+            self.weights[hx, hy, hz, ht, ox, oy, vz, vt] = ti.cast((ti.random() * 2.0 - 1.0) * 0.01, param_type)
 
     # Stepping
     @ti.kernel
@@ -106,13 +106,18 @@ class DecoderVisibleLayer:
             s = 0
             count = it_size.x * it_size.y * hidden_size.z * hidden_size.w
 
-            for ox, oy in ti.ndrange(it_size.x, it_size.y):
-                offset = tm.ivec2(ox, oy)
-                h_pos = it_start + offset
+            for hox, hoy in ti.ndrange(it_size.x, it_size.y):
+                h_offset = tm.ivec2(hox, hoy)
+                h_pos = it_start + h_offset
 
-                for hz in range(hidden_size.z):
-                    for ht in range(hidden_size.w):
-                        s += self.usages[h_pos.x, h_pos.y, hz, ht, ox, oy, visible_state, vt]
+                v_center = tm.ivec2((h_pos.x + 0.5) * self.h_to_v.x, (h_pos.y + 0.5) * self.h_to_v.y)
+
+                if v_pos.x >= v_center.x - self.radius and v_pos.y >= v_center.y - self.radius and v_pos.x <= v_center.x + self.radius and v_pos.y <= v_center.y + self.radius:
+                    v_offset = tm.ivec2(v_pos.x - v_center.x + self.radius, v_pos.y - v_center.y + self.radius)
+
+                    for hz in range(hidden_size.z):
+                        for ht in range(hidden_size.w):
+                            s += self.usages[h_pos.x, h_pos.y, hz, ht, v_offset.x, v_offset.y, visible_state, vt]
 
             self.visible_gates[vx, vy, vt] = ti.cast(tm.exp(-s / count * gcurve), param_type)
 
