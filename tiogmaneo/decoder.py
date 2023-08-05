@@ -40,7 +40,7 @@ class Decoder:
 
     # Stepping
     @ti.kernel
-    def accum(i: int, vt_start: int, visible_states: ti.Field):
+    def accum_activations(i: int, vt_start: int, visible_states: ti.Field):
         vld = self.vlds[i]
         vl = self.vls[i]
 
@@ -118,7 +118,7 @@ class Decoder:
             it_size = it_end - it_start
 
             s = 0
-            count = it_size.x * it_size.y * self.hidden_size[2]
+            count = it_size.x * it_size.y * self.hidden_size[2] * self.hidden_size[3]
 
             for ox, oy in ti.ndrange(it_size):
                 offset = tm.ivec2(ox, oy)
@@ -268,7 +268,7 @@ class Decoder:
 
         # Accumulate for all visible layers
         for i in range(len(self.vls)):
-            self.accum(i, vt_start, visible_states[i])
+            self.accum_activations(i, vt_start, visible_states[i])
 
         self.activate()
 

@@ -40,7 +40,7 @@ class Encoder:
 
     # Stepping
     @ti.kernel
-    def accum(i: int, vt_start: int, visible_states: ti.Field):
+    def accum_activations(i: int, vt_start: int, visible_states: ti.Field):
         vld = self.vlds[i]
         vl = self.vls[i]
 
@@ -84,6 +84,43 @@ class Encoder:
                     max_index = hz
 
             self.hidden_states[hx, hy] = max_index
+
+    @ti.kernel
+    def accum_gates(i: int):
+        vld = self.vlds[i]
+        vl = self.vls[i]
+
+        for hx, hy in ti.ndrange(self.hidden_size[0], self.hidden_size[1]):
+            h_pos = tm.ivec2(hx, hy)
+
+            v_center = project(h_pos, vld.h_to_v)
+            
+            offset_start = v_center - vld.radius
+
+            it_start = tm.ivec2(tm.max(0, offset_start.x), tm.max(0, offset_start.y))
+            it_end = tm.ivec2(tm.min(vld.size.x, v_center.x + 1 + vld.radius), tm.min(vld.size.y, v_center.y + 1 + vld.radius))
+
+            it_size = it_end - it_start
+
+            hidden_state = self.hidden_states[hx, hy]
+
+            s = 0
+            count = it_size.x * it_size.y * vld.size[2] * vld.size[3]
+
+            for ox, oy in ti.ndrange(it_size):
+                offset = tm.ivec2(ox, oy)
+                v_pos = it_start + offset
+
+                for vz in range(vld.size[2]):
+                    for vt in range(vld.size[3]):
+                        s += vl.usages[hx, hy, hidden_state, ox, oy, vz, vt]
+
+            self.hidden_gates[hx, hy] += s / count
+
+    @ti.kernel
+    def update_gates():
+        for hx, hy in ti.ndrange(self.hidden_size[0], self.hidden_size[1]):
+            self.hidden_gates[hx, hy] = tm.exp(-self.hidden_gates[hx, hy] / len(self.vls) * self.gcurve)
 
     @ti.kernel
     def learn(i: int, vt_start: int, visible_states: ti.Field):
@@ -242,50 +279,22 @@ class Encoder:
 
         # Accumulate for all visible layers
         for i in range(len(self.vls)):
-            self.accum(i, vt_start, visible_states[i])
+            self.accum_activations(i, vt_start, visible_states[i])
 
         self.activate()
 
         if learn_enabled:
             # Clear
-            self.usage_sums.fill(np.float32(0))
+            self.hidden_gates.fill(0)
 
             # Accumulate gates for all visible layers
             for i in range(len(self.vls)):
-                vld = self.vlds[i]
-                vl = self.vls[i]
+                self.accum_gates(i)
 
-                diam = vld.radius * 2 + 1
-
-                vec_visible_size = np.array(list(vld.size), dtype=np.int32)
-                
-                self.encoder_accum_usages_kernel(cq, (self.hidden_size[0], self.hidden_size[1]), None,
-                        self.hidden_states.data, vl.usages.data, self.usage_sums.data,
-                        vec_visible_size, vec_hidden_size, np.int32(vld.radius), np.int32(diam),
-                        np.array([ vld.size[0] / self.hidden_size[0], vld.size[1] / self.hidden_size[1] ], dtype=np.float32),
-                        np.float32(vld.importance))
-
-            self.encoder_activate_gates_kernel(cq, (self.hidden_size[0], self.hidden_size[1]), None, self.usage_sums.data, self.hidden_gates.data,
-                    vec_hidden_size,
-                    np.float32(1.0 / len(self.vls)), np.float32(self.gcurve))
+            self.update_gates()
 
             for i in range(len(self.vls)):
-                vld = self.vlds[i]
-                vl = self.vls[i]
-
-                diam = vld.radius * 2 + 1
-
-                vec_visible_size = np.array(list(vld.size), dtype=np.int32)
-
-                self.encoder_learn_kernel(cq, (vld.size[0], vld.size[1], vld.size[2] * vld.size[3]), (1, 1, vld.size[2]),
-                        visible_states[i].data, self.hidden_states.data, self.hidden_gates.data, vl.weights.data, vl.usages.data, vl.reconstruction.data,
-                        vec_visible_size, vec_hidden_size, np.int32(vld.radius),
-                        np.array([ math.ceil(diam * self.hidden_size[0] / vld.size[0] * 0.5), math.ceil(diam * self.hidden_size[1] / vld.size[1] * 0.5) ], np.int32),
-                        np.int32(diam),
-                        np.array([ vld.size[0] / self.hidden_size[0], vld.size[1] / self.hidden_size[1] ], dtype=np.float32),
-                        np.array([ self.hidden_size[0] / vld.size[0], self.hidden_size[1] / vld.size[1] ], dtype=np.float32),
-                        np.int32(history_pos),
-                        np.float32(self.lr))
+                self.learn(i, vt_start, visible_states[i])
 
     def write(self, fd: io.IOBase):
         fd.write(struct.pack("iii", *self.hidden_size))
