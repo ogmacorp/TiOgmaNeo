@@ -46,7 +46,7 @@ class DecoderVisibleLayer:
         self.visible_states_prev = ti.field(state_type, shape=(self.size[0], self.size[1], self.size[3]))
         self.visible_states_prev.fill(0)
 
-        self.visible_gates = ti.field(ti.f16, shape=(self.size[0], self.size[1], self.size[3]))
+        self.visible_gates = ti.field(param_type, shape=(self.size[0], self.size[1], self.size[3]))
 
         self.h_to_v = tm.vec2(self.size[0] / hidden_size[0], self.size[1] / hidden_size[1])
         self.v_to_h = tm.vec2(hidden_size[0] / self.size[0], hidden_size[1] / self.size[1])
