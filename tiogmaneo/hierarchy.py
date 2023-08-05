@@ -40,6 +40,17 @@ class Hierarchy:
         ticks_per_update: int = 2
         temporal_horizon: int = 2
 
+    @ti.kernel
+    def concat(size: tm.ivec2, t: int, hidden_state: ti.template(), predicted_state: ti.template(), output: ti.template()):
+        for x, y in ti.ndrange(size):
+            output[x, y, 0] = hidden_state[x, y]
+            output[x, y, 1] = predicted_state[x, y, t]
+
+    @ti.kernel
+    def get_time(size: tm.ivec2, t: int, state: ti.template(), output: ti.template()):
+        for x, y in ti.ndrange(size):
+            output[x, y] = state[x, y, t]
+
     def __init__(self, io_descs: [ IODesc ] = [], lds: [ LayerDesc ] = [], fd: io.IOBase = None):
         if fd is None:
             self.io_descs = io_descs
@@ -185,7 +196,7 @@ class Hierarchy:
         for i in range(len(self.io_descs)):
             num_visible_columns = self.io_descs[i].size[0] * self.io_descs[i].size[1]
 
-            self.histories[0][i][num_visible_columns * self.t_starts[0] : num_visible_columns * (self.t_starts[0] + 1)][:] = input_states[i][:]
+            self.histories[0][i][num_visible_columns * self.t_starts[0] : num_visible_columns * (self.t_starts[0] + 1)].copy_from(input_states[i])
 
         # Up-pass
         for i in range(len(self.encoders)):
@@ -212,7 +223,7 @@ class Hierarchy:
 
                     num_visible_columns = self.lds[i].hidden_size[0] * self.lds[i].hidden_size[1]
 
-                    self.histories[i_next][0][num_visible_columns * self.t_starts[i_next] : num_visible_columns * (self.t_starts[i_next] + 1)][:] = self.encoders[i].hidden_states[:]
+                    self.histories[i_next][0][num_visible_columns * self.t_starts[i_next] : num_visible_columns * (self.t_starts[i_next] + 1)].copy_from(self.encoders[i].hidden_states)
 
                     self.ticks[i_next] += 1
 
@@ -223,12 +234,11 @@ class Hierarchy:
                 decoder_visible_states = []
 
                 if i < len(self.lds) - 1:
-                    self.complete_states[i][: len(self.encoders[i].hidden_states)] = self.encoders[i].hidden_states[:]
+                    hidden_size = self.encoders[i].hidden_size
 
-                    num_hidden_columns = self.lds[i].hidden_size[0] * self.lds[i].hidden_size[1]
-                    destride_index = self.ticks_per_update[i + 1] - 1 - self.ticks[i + 1]
+                    t = self.ticks_per_update[i + 1] - 1 - self.ticks[i + 1]
 
-                    self.complete_states[i][len(self.encoders[i].hidden_states) :] = self.decoders[i + 1][0].hidden_states[num_hidden_columns * destride_index : num_hidden_columns * (destride_index + 1)][:]
+                    self.merge(tm.ivec2(hidden_size[0], hidden_size[1]), self.encoders[i].hidden_states, self.decoders[i + 1][0].hidden_states, self.complete_states[i])
 
                     decoder_visible_states = [ self.complete_states[i] ]
                 else:
