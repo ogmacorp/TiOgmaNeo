@@ -99,7 +99,7 @@ class DecoderVisibleLayer:
             offset_start = h_center - self.reverse_radii
 
             it_start = tm.ivec2(tm.max(0, offset_start.x), tm.max(0, offset_start.y))
-            it_end = tm.ivec2(tm.min(hidden_size.x, h_center.x + 1 + self.reverse_radii.x), tm.min(hidden_size.y, v_center.y + 1 + vl.reverse_radii.y))
+            it_end = tm.ivec2(tm.min(hidden_size.x, h_center.x + 1 + self.reverse_radii.x), tm.min(hidden_size.y, h_center.y + 1 + vl.reverse_radii.y))
 
             it_size = it_end - it_start
 
