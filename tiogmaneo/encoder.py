@@ -116,7 +116,7 @@ class EncoderVisibleLayer:
             hidden_gates[hx, hy] += ti.cast(s / count, param_type)
 
     @ti.kernel
-    def learn(self, hidden_size: tm.ivec3, vt_start: int, hidden_states: ti.template(), visible_states: ti.template(), hidden_gates: ti.template()):
+    def learn(self, hidden_size: tm.ivec3, vt_start: int, hidden_states: ti.template(), visible_states: ti.template(), hidden_gates: ti.template(), lr: float):
         for vx, vy, vt in ti.ndrange(self.size[0], self.size[1], self.size[3]):
             visible_state = visible_states[vx, vy, (vt_start + vt) % self.size[3]]
 
@@ -163,7 +163,7 @@ class EncoderVisibleLayer:
 
                 modulation = float(max_index != visible_state)
 
-                delta = self.lr * modulation * (is_target - self.reconstruction[vx, vy, vz, vt])
+                delta = lr * modulation * (is_target - self.reconstruction[vx, vy, vz, vt])
 
                 for ox, oy in ti.ndrange(it_size.x, it_size.y):
                     offset = tm.ivec2(ox, oy)
@@ -174,8 +174,8 @@ class EncoderVisibleLayer:
                     # Weight indices
                     indices = (h_pos.x, h_pos.y, hidden_state, ox, oy, vz, vt)
 
-                    self.weights[indices] += delta * hidden_gates[h_pos.x, h_pos.y]
-                    self.usages[indices] = tm.min(255, self.usages[indices] + usage_increment)
+                    self.weights[indices] += tm.cast(delta * hidden_gates[h_pos.x, h_pos.y], param_type)
+                    self.usages[indices] = tm.cast(tm.min(255, self.usages[indices] + usage_increment), usage_type)
 
     def write_buffers(self, fd: io.IOBase):
         write_from_buffer(fd, self.weights)
@@ -279,7 +279,7 @@ class Encoder:
             self.update_gates()
 
             for i, vl in enumerate(self.vls):
-                vl.learn(self.hidden_size, vt_start, self.hidden_states, visible_states[i], self.hidden_gates)
+                vl.learn(self.hidden_size, vt_start, self.hidden_states, visible_states[i], self.hidden_gates, self.lr)
 
     def write(self, fd: io.IOBase):
         fd.write(struct.pack("iii", *self.hidden_size))

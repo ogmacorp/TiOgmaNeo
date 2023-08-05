@@ -88,7 +88,7 @@ class DecoderVisibleLayer:
             activations[hx, hy, hz, ht] += s / count
 
     @ti.kernel
-    def update_gates(self, hidden_size: tm.ivec4, vt_start: int):
+    def update_gates(self, hidden_size: tm.ivec4, vt_start: int, gcurve: float):
         for vx, vy, vt in ti.ndrange(self.size[0], self.size[1], self.size[3]):
             visible_state = self.visible_states_prev[vx, vy, (vt_start + vt) % self.size[3]]
 
@@ -114,10 +114,10 @@ class DecoderVisibleLayer:
                     for ht in range(hidden_size.w):
                         s += vl.usages[h_pos.x, h_pos.y, hz, ht, ox, oy, visible_state, vt]
 
-            self.visible_gates[vx, vy, vt] = tm.exp(-s / count * self.gcurve)
+            self.visible_gates[vx, vy, vt] = tm.exp(-s / count * gcurve)
 
     @ti.kernel
-    def learn(self, hidden_size: tm.ivec4, vt_start: int, ht_start: int, target_temporal_horizon: int, target_hidden_states: ti.template(), activations: ti.template()):
+    def learn(self, hidden_size: tm.ivec4, vt_start: int, ht_start: int, target_temporal_horizon: int, target_hidden_states: ti.template(), activations: ti.template(), lr: float):
         for hx, hy, hz, ht in ti.ndrange(hidden_size.x, hidden_size.y, hidden_size.z, hidden_size.w):
             h_pos = tm.ivec2(hx, hy)
 
@@ -135,7 +135,7 @@ class DecoderVisibleLayer:
             is_target = float(hz == target_hidden_state)
             usage_increment = int(is_target)
 
-            delta = self.lr * (is_target - activations[hx, hy, hz, ht])
+            delta = lr * (is_target - activations[hx, hy, hz, ht])
 
             for ox, oy in ti.ndrange(it_size.x, it_size.y):
                 offset = tm.ivec2(ox, oy)
@@ -147,8 +147,8 @@ class DecoderVisibleLayer:
                     # Weight indices
                     indices = (hx, hy, hz, ht, ox, oy, visible_state, vt)
 
-                    self.weights[indices] += delta * self.visible_gates[vx, vy, vt]
-                    self.usages[indices] = tm.min(255, self.usages[indices] + usage_increment)
+                    self.weights[indices] += ti.cast(delta * self.visible_gates[vx, vy, vt], param_type)
+                    self.usages[indices] = ti.cast(tm.min(255, self.usages[indices] + usage_increment), usage_type)
 
     def write_buffers(self, fd: io.IOBase):
         write_from_buffer(fd, self.weights)
@@ -243,10 +243,10 @@ class Decoder:
         if learn_enabled:
             # Activate gates
             for vl in self.vls:
-                vl.update_gates(self.hidden_size, vt_start)
+                vl.update_gates(self.hidden_size, vt_start, self.gcurve)
 
             for vl in self.vls:
-                vl.learn(self.hidden_size, vt_start, ht_start, target_temporal_horizon, target_hidden_states, self.activations)
+                vl.learn(self.hidden_size, vt_start, ht_start, target_temporal_horizon, target_hidden_states, self.activations, self.lr)
 
         # Clear
         self.activations.fill(0)
