@@ -49,19 +49,19 @@ class Decoder:
 
             v_center = project(h_pos, vld.h_to_v)
             
-            offsevt_start = v_center - vld.radius
+            offset_start = v_center - vld.radius
 
-            ivt_start = tm.ivec2(tm.max(0, offsevt_start.x), tm.max(0, offsevt_start.y))
+            it_start = tm.ivec2(tm.max(0, offset_start.x), tm.max(0, offset_start.y))
             it_end = tm.ivec2(tm.min(vld.size.x, v_center.x + 1 + vld.radius), tm.min(vld.size.y, v_center.y + 1 + vld.radius))
 
-            it_size = it_end - ivt_start
+            it_size = it_end - it_start
 
             s = 0
             count = it_size.x * it_size.y
 
             for ox, oy in ti.ndrange(it_size):
                 offset = tm.ivec2(ox, oy)
-                v_pos = ivt_start + offset
+                v_pos = it_start + offset
 
                 for vt in range(vld.size[3]):
                     visible_state = visible_states[v_pos.x, v_pos.y, (vt_start + vt) % vld.size[3]]
@@ -110,23 +110,23 @@ class Decoder:
 
             h_center = project(v_pos, vld.v_to_h)
             
-            offsevt_start = h_center - vl.reverse_radii
+            offset_start = h_center - vl.reverse_radii
 
-            ivt_start = tm.ivec2(tm.max(0, offsevt_start.x), tm.max(0, offsevt_start.y))
+            it_start = tm.ivec2(tm.max(0, offset_start.x), tm.max(0, offset_start.y))
             it_end = tm.ivec2(tm.min(self.hidden_size[0], h_center.x + 1 + vl.reverse_radii.x), tm.min(self.hidden_size[1], v_center.y + 1 + vl.reverse_radii.y))
 
-            it_size = it_end - ivt_start
+            it_size = it_end - it_start
 
             s = 0
             count = it_size.x * it_size.y * self.hidden_size[2]
 
             for ox, oy in ti.ndrange(it_size):
                 offset = tm.ivec2(ox, oy)
-                v_pos = ivt_start + offset
+                h_pos = it_start + offset
 
                 for hz in range(self.hidden_size[2]):
                     for ht in range(self.hidden_size[3]):
-                        s += vl.usages[hx, hy, hz, ht, ox, oy, visible_state, vt]
+                        s += vl.usages[h_pos.x, h_pos.y, hz, ht, ox, oy, visible_state, vt]
 
             self.visible_gates[vx, vy, vt] = tm.exp(-s / count * self.gcurve)
 
@@ -140,12 +140,12 @@ class Decoder:
 
             v_center = project(h_pos, vld.h_to_v)
             
-            offsevt_start = v_center - vld.radius
+            offset_start = v_center - vld.radius
 
-            ivt_start = tm.ivec2(tm.max(0, offsevt_start.x), tm.max(0, offsevt_start.y))
+            it_start = tm.ivec2(tm.max(0, offset_start.x), tm.max(0, offset_start.y))
             it_end = tm.ivec2(tm.min(vld.size.x, v_center.x + 1 + vld.radius), tm.min(vld.size.y, v_center.y + 1 + vld.radius))
 
-            it_size = it_end - ivt_start
+            it_size = it_end - it_start
 
             target_hidden_state = target_hidden_states[hx, hy, (ht_start + ht) % target_temporal_horizon]
 
@@ -156,7 +156,7 @@ class Decoder:
 
             for ox, oy in ti.ndrange(it_size):
                 offset = tm.ivec2(ox, oy)
-                v_pos = ivt_start + offset
+                v_pos = it_start + offset
 
                 for vt in range(vld.size[3]):
                     visible_state = self.visible_states_prev[v_pos.x, v_pos.y, (vt_start + vt) % vld.size[3]]

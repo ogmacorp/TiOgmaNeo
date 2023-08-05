@@ -49,19 +49,19 @@ class Encoder:
 
             v_center = project(h_pos, vld.h_to_v)
             
-            offsevt_start = v_center - vld.radius
+            offset_start = v_center - vld.radius
 
-            ivt_start = tm.ivec2(tm.max(0, offsevt_start.x), tm.max(0, offsevt_start.y))
+            it_start = tm.ivec2(tm.max(0, offset_start.x), tm.max(0, offset_start.y))
             it_end = tm.ivec2(tm.min(vld.size.x, v_center.x + 1 + vld.radius), tm.min(vld.size.y, v_center.y + 1 + vld.radius))
 
-            it_size = it_end - ivt_start
+            it_size = it_end - it_start
 
             s = 0
             count = it_size.x * it_size.y
 
             for ox, oy in ti.ndrange(it_size):
                 offset = tm.ivec2(ox, oy)
-                v_pos = ivt_start + offset
+                v_pos = it_start + offset
 
                 for vt in range(vld.size[3]):
                     visible_state = visible_states[v_pos.x, v_pos.y, (vt_start + vt) % vld.size[3]]
@@ -91,31 +91,64 @@ class Encoder:
         vl = self.vls[i]
 
         for vx, vy, vt in ti.ndrange(vld.size[0], vld.size[1], vld.size[3]):
-            visible_state = vl.visible_states_prev[vx, vy, (vt_start + vt) % vld.size[3]]
+            visible_state = visible_states[vx, vy, (vt_start + vt) % vld.size[3]]
 
             v_pos = tm.ivec2(vx, vy)
 
             h_center = project(v_pos, vld.v_to_h)
             
-            offsevt_start = h_center - vl.reverse_radii
+            offset_start = h_center - vl.reverse_radii
 
-            ivt_start = tm.ivec2(tm.max(0, offsevt_start.x), tm.max(0, offsevt_start.y))
+            it_start = tm.ivec2(tm.max(0, offset_start.x), tm.max(0, offset_start.y))
             it_end = tm.ivec2(tm.min(self.hidden_size[0], h_center.x + 1 + vl.reverse_radii.x), tm.min(self.hidden_size[1], v_center.y + 1 + vl.reverse_radii.y))
 
-            it_size = it_end - ivt_start
+            it_size = it_end - it_start
 
-            s = 0
-            count = it_size.x * it_size.y * self.hidden_size[2]
+            count = it_size.x * it_size.y
 
-            for ox, oy in ti.ndrange(it_size):
-                offset = tm.ivec2(ox, oy)
-                v_pos = ivt_start + offset
+            max_index = 0
+            max_activation = limit_min
 
-                for hz in range(self.hidden_size[2]):
-                    for ht in range(vld.size[3]):
-                        s += vl.usages[hx, hy, hz, ht, ox, oy, visible_state, vt]
+            # Reconstruct
+            for vz in range(vld.size[2]):
+                s = 0
 
-            self.visible_gates[vx, vy, vt] = tm.exp(-s / count * self.gcurve)
+                for ox, oy in ti.ndrange(it_size):
+                    offset = tm.ivec2(ox, oy)
+                    h_pos = it_start + offset
+
+                    hidden_state = self.hidden_states[h_pos.x, h_pos.y]
+
+                    s += vl.weights[h_pos.x, h_pos.y, hidden_state, ox, oy, vz, vt]
+
+                s /= count
+
+                vl.reconstruction[vx, vy, vz, vt] = tm.exp(s - 1)
+
+                if s > max_activation:
+                    max_activation = s
+                    max_index = vz
+
+            # Update, if not early stopped
+            for vz in range(vld.size[2]):
+                is_target = float(vz == visible_state)
+                usage_increment = int(is_target)
+
+                modulation = float(max_index != visible_state)
+
+                delta = self.lr * modulation * (is_target - vl.reconstruction[vx, vy, vz, vt])
+
+                for ox, oy in ti.ndrange(it_size):
+                    offset = tm.ivec2(ox, oy)
+                    h_pos = it_start + offset
+
+                    hidden_state = self.hidden_states[h_pos.x, h_pos.y]
+
+                    # Weight indices
+                    indices = (h_pos.x, h_pos.y, hidden_state, ox, oy, vz, vt)
+
+                    vl.weights[indices] += delta * self.hidden_gates[h_pos.x, h_pos.y]
+                    vl.usages[indices] = tm.min(255, vl.usages[indices] + usage_increment)
 
     def __init__(self, hidden_size: (int, int, int) = (4, 4, 16), vlds: [ VisibleLayerDesc ] = [], fd: io.IOBase = None):
         if fd is None:
