@@ -84,7 +84,7 @@ class EncoderVisibleLayer:
 
                     s += self.weights[hx, hy, hz, ox, oy, visible_state, vt]
 
-            activations[hx, hy, hz] += s / count
+            activations[hx, hy, hz] += ti.cast(s / count, param_type)
 
     @ti.kernel
     def accum_gates(self, hidden_size: tm.ivec3, hidden_states: ti.template(), hidden_gates: ti.template()):
@@ -201,7 +201,7 @@ class Encoder:
     @ti.kernel
     def update_gates(self):
         for hx, hy in ti.ndrange(self.hidden_size[0], self.hidden_size[1]):
-            self.hidden_gates[hx, hy] = ti.cast(tm.exp(-self.hidden_gates[hx, hy] / len(self.vls) * self.gcurve), param_type)
+            self.hidden_gates[hx, hy] = ti.cast(tm.exp(-self.hidden_gates[hx, hy] * self.gcurve), param_type)
 
     def __init__(self, hidden_size: (int, int, int) = (4, 4, 16), vlds: [ EncoderVisibleLayerDesc ] = [], fd: io.IOBase = None):
         if fd is None:

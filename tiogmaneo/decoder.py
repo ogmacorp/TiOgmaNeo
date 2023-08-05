@@ -69,7 +69,7 @@ class DecoderVisibleLayer:
             offset_start = v_center - self.radius
 
             it_start = tm.ivec2(tm.max(0, offset_start.x), tm.max(0, offset_start.y))
-            it_end = tm.ivec2(tm.min(self.size.x, v_center.x + 1 + self.radius), tm.min(self.size.y, v_center.y + 1 + self.radius))
+            it_end = tm.ivec2(tm.min(self.size[0], v_center.x + 1 + self.radius), tm.min(self.size[1], v_center.y + 1 + self.radius))
 
             it_size = it_end - it_start
 
@@ -85,7 +85,7 @@ class DecoderVisibleLayer:
 
                     s += self.weights[hx, hy, hz, ht, ox, oy, visible_state, vt]
 
-            activations[hx, hy, hz, ht] += s / count
+            activations[hx, hy, hz, ht] += ti.cast(s / count, param_type)
 
     @ti.kernel
     def update_gates(self, hidden_size: tm.ivec4, vt_start: int, gcurve: float):
@@ -112,9 +112,9 @@ class DecoderVisibleLayer:
 
                 for hz in range(hidden_size.z):
                     for ht in range(hidden_size.w):
-                        s += vl.usages[h_pos.x, h_pos.y, hz, ht, ox, oy, visible_state, vt]
+                        s += self.usages[h_pos.x, h_pos.y, hz, ht, ox, oy, visible_state, vt]
 
-            self.visible_gates[vx, vy, vt] = tm.exp(-s / count * gcurve)
+            self.visible_gates[vx, vy, vt] = ti.cast(tm.exp(-s / count * gcurve), param_type)
 
     @ti.kernel
     def learn(self, hidden_size: tm.ivec4, vt_start: int, ht_start: int, target_temporal_horizon: int, target_hidden_states: ti.template(), activations: ti.template(), lr: float):
@@ -126,7 +126,7 @@ class DecoderVisibleLayer:
             offset_start = v_center - self.radius
 
             it_start = tm.ivec2(tm.max(0, offset_start.x), tm.max(0, offset_start.y))
-            it_end = tm.ivec2(tm.min(self.size.x, v_center.x + 1 + self.radius), tm.min(self.size.y, v_center.y + 1 + self.radius))
+            it_end = tm.ivec2(tm.min(self.size[0], v_center.x + 1 + self.radius), tm.min(self.size[1], v_center.y + 1 + self.radius))
 
             it_size = it_end - it_start
 
@@ -147,7 +147,41 @@ class DecoderVisibleLayer:
                     # Weight indices
                     indices = (hx, hy, hz, ht, ox, oy, visible_state, vt)
 
-                    self.weights[indices] += ti.cast(delta * self.visible_gates[vx, vy, vt], param_type)
+                    self.weights[indices] += ti.cast(delta * self.visible_gates[v_pos.x, v_pos.y, vt], param_type)
+                    self.usages[indices] = ti.cast(tm.min(255, self.usages[indices] + usage_increment), usage_type)
+
+    @ti.kernel
+    def learn_no_t_target(self, hidden_size: tm.ivec4, vt_start: int, target_hidden_states: ti.template(), activations: ti.template(), lr: float):
+        for hx, hy, hz, ht in ti.ndrange(hidden_size.x, hidden_size.y, hidden_size.z, hidden_size.w):
+            h_pos = tm.ivec2(hx, hy)
+
+            v_center = tm.ivec2((h_pos.x + 0.5) * self.h_to_v.x, (h_pos.y + 0.5) * self.h_to_v.y)
+            
+            offset_start = v_center - self.radius
+
+            it_start = tm.ivec2(tm.max(0, offset_start.x), tm.max(0, offset_start.y))
+            it_end = tm.ivec2(tm.min(self.size[0], v_center.x + 1 + self.radius), tm.min(self.size[1], v_center.y + 1 + self.radius))
+
+            it_size = it_end - it_start
+
+            target_hidden_state = target_hidden_states[hx, hy]
+
+            is_target = float(hz == target_hidden_state)
+            usage_increment = int(is_target)
+
+            delta = lr * (is_target - activations[hx, hy, hz, ht])
+
+            for ox, oy in ti.ndrange(it_size.x, it_size.y):
+                offset = tm.ivec2(ox, oy)
+                v_pos = it_start + offset
+
+                for vt in range(self.size[3]):
+                    visible_state = self.visible_states_prev[v_pos.x, v_pos.y, (vt_start + vt) % self.size[3]]
+
+                    # Weight indices
+                    indices = (hx, hy, hz, ht, ox, oy, visible_state, vt)
+
+                    self.weights[indices] += ti.cast(delta * self.visible_gates[v_pos.x, v_pos.y, vt], param_type)
                     self.usages[indices] = ti.cast(tm.min(255, self.usages[indices] + usage_increment), usage_type)
 
     def write_buffers(self, fd: io.IOBase):
@@ -173,17 +207,17 @@ class Decoder:
             self.hidden_states[hx, hy, ht] = max_index
 
             # Softmax
-            total = 0
+            total = 0.0
 
             for hz in range(self.hidden_size[2]):
-                self.activations[hx, hy, hz, ht] = tm.exp(self.activations[hx, hy, hz, ht] - max_activation)
+                self.activations[hx, hy, hz, ht] = ti.cast(tm.exp(self.activations[hx, hy, hz, ht] - max_activation), param_type)
 
                 total += self.activations[hx, hy, hz, ht]
 
-            total_inv = 1 / tm.max(limit_small, total)
+            total_inv = 1.0 / tm.max(limit_small, total)
 
             for hz in range(self.hidden_size[2]):
-                self.activations[hx, hy, hz, ht] *= total_inv
+                self.activations[hx, hy, hz, ht] = ti.cast(self.activations[hx, hy, hz, ht] / total_inv, param_type)
 
     def __init__(self, hidden_size: (int, int, int, int) = (4, 4, 16, 1), vlds: [ DecoderVisibleLayerDesc ] = [], fd: io.IOBase = None):
         if fd is None:
@@ -245,8 +279,14 @@ class Decoder:
             for vl in self.vls:
                 vl.update_gates(self.hidden_size, vt_start, self.gcurve)
 
-            for vl in self.vls:
-                vl.learn(self.hidden_size, vt_start, ht_start, target_temporal_horizon, target_hidden_states, self.activations, self.lr)
+            if len(target_hidden_states.shape) == 2:
+                # Flattened version (no time axis)
+                for vl in self.vls:
+                    vl.learn_no_t_target(self.hidden_size, vt_start, target_hidden_states, self.activations, self.lr)
+            else: # len == 3
+                # With time axis
+                for vl in self.vls:
+                    vl.learn(self.hidden_size, vt_start, ht_start, target_temporal_horizon, target_hidden_states, self.activations, self.lr)
 
         # Clear
         self.activations.fill(0)
