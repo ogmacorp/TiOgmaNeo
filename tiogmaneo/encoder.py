@@ -55,7 +55,7 @@ class EncoderVisibleLayer:
     @ti.kernel
     def init_random(self):
         for hx, hy, hz, ox, oy, vz, vt in self.weights:
-            self.weights[hx, hy, hz, ox, oy, vz, vt] = ti.cast(ti.random(), param_type)
+            self.weights[hx, hy, hz, ox, oy, vz, vt] = ti.cast(1.0 - ti.random() * 0.01, param_type)
 
     # Stepping
     @ti.kernel
@@ -84,7 +84,7 @@ class EncoderVisibleLayer:
 
                     s += self.weights[hx, hy, hz, ox, oy, visible_state, vt]
 
-            activations[hx, hy, hz] += ti.cast(s / count, param_type)
+            activations[hx, hy, hz] += ti.cast(s / count * self.importance, param_type)
 
     @ti.kernel
     def accum_gates(self, hidden_size: tm.ivec3, hidden_states: ti.template(), hidden_gates: ti.template()):
@@ -155,7 +155,7 @@ class EncoderVisibleLayer:
 
                 s /= count
 
-                self.reconstruction[vx, vy, vz, vt] = ti.cast(tm.exp(s - 1), param_type)
+                self.reconstruction[vx, vy, vz, vt] = ti.cast(tm.exp(s - 1.0), param_type)
 
                 if s > max_activation:
                     max_activation = s
@@ -235,7 +235,7 @@ class Encoder:
 
             # Hyperparameters
             self.lr = 0.5
-            self.gcurve = 0.02
+            self.gcurve = 0.01
 
         else: # Load from h5py group
             self.hidden_size = struct.unpack("iii", fd.read(3 * np.dtype(np.int32).itemsize))

@@ -13,7 +13,7 @@ import taichi.math as tm
 
 # Types used for aspects of SPH
 state_type = ti.i32
-param_type = ti.f32
+param_type = ti.f16
 usage_type = ti.u8
 
 # Limits
