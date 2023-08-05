@@ -21,12 +21,6 @@ Welcome to the [Ogma](https://ogmacorp.com) TiOgmaNeo Python library. It impleme
 
 ## Installation
 
-You may install from pypi:
-
-> pip install tiogmaneo
-
-Or from this directory:
-
 > pip install .
 
 ## Importing
