@@ -175,7 +175,7 @@ class EncoderVisibleLayer:
                     indices = (h_pos.x, h_pos.y, hidden_state, ox, oy, vz, vt)
 
                     self.weights[indices] += ti.cast(delta * hidden_gates[h_pos.x, h_pos.y], param_type)
-                    self.usages[indices] = ti.cast(tm.min(255, self.usages[indices] + usage_increment), usage_type)
+                    self.usages[indices] = ti.cast(tm.min(usage_max, self.usages[indices] + usage_increment), usage_type)
 
     def write_buffers(self, fd: io.IOBase):
         write_from_buffer(fd, self.weights)

@@ -148,7 +148,7 @@ class DecoderVisibleLayer:
                     indices = (hx, hy, hz, ht, ox, oy, visible_state, vt)
 
                     self.weights[indices] += ti.cast(delta * self.visible_gates[v_pos.x, v_pos.y, vt], param_type)
-                    self.usages[indices] = ti.cast(tm.min(255, self.usages[indices] + usage_increment), usage_type)
+                    self.usages[indices] = ti.cast(tm.min(usage_max, self.usages[indices] + usage_increment), usage_type)
 
     @ti.kernel
     def learn_no_t_target(self, hidden_size: tm.ivec4, vt_start: int, target_hidden_states: ti.template(), activations: ti.template(), lr: float):
@@ -182,7 +182,7 @@ class DecoderVisibleLayer:
                     indices = (hx, hy, hz, ht, ox, oy, visible_state, vt)
 
                     self.weights[indices] += ti.cast(delta * self.visible_gates[v_pos.x, v_pos.y, vt], param_type)
-                    self.usages[indices] = ti.cast(tm.min(255, self.usages[indices] + usage_increment), usage_type)
+                    self.usages[indices] = ti.cast(tm.min(usage_max, self.usages[indices] + usage_increment), usage_type)
 
     def write_buffers(self, fd: io.IOBase):
         write_from_buffer(fd, self.weights)
