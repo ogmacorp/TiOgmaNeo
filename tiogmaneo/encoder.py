@@ -45,7 +45,7 @@ class EncoderVisibleLayer:
         self.usages = ti.field(usage_type, shape=self.weights.shape)
         self.usages.fill(0)
 
-        self.reconstruction = ti.field(param_type, shape=vld.size)
+        self.reconstruction = ti.field(param_type, shape=self.size)
 
         self.h_to_v = tm.vec2(self.size[0] / hidden_size[0], self.size[1] / hidden_size[1])
         self.v_to_h = tm.vec2(hidden_size[0] / self.size[0], hidden_size[1] / self.size[1])
@@ -87,7 +87,7 @@ class EncoderVisibleLayer:
             activations[hx, hy, hz] += s / count
 
     @ti.kernel
-    def accum_gates(hidden_size: (int, int, int), hidden_states: ti.template()):
+    def accum_gates(hidden_size: tm.ivec3, hidden_states: ti.template()):
         for hx, hy in ti.ndrange(hidden_size[0], hidden_size[1]):
             h_pos = tm.ivec2(hx, hy)
 
@@ -116,7 +116,7 @@ class EncoderVisibleLayer:
             self.hidden_gates[hx, hy] += s / count
 
     @ti.kernel
-    def learn(self, i: int, vt_start: int, visible_states: ti.template()):
+    def learn(self, vt_start: int, visible_states: ti.template()):
         for vx, vy, vt in ti.ndrange(self.size[0], self.size[1], self.size[3]):
             visible_state = visible_states[vx, vy, (vt_start + vt) % self.size[3]]
 
@@ -199,11 +199,11 @@ class Encoder:
             self.hidden_states[hx, hy] = max_index
 
     @ti.kernel
-    def update_gates(self, hidden_size: (int, int, int)):
+    def update_gates(self, hidden_size: tm.ivec3):
         for hx, hy in ti.ndrange(self.hidden_size[0], self.hidden_size[1]):
             self.hidden_gates[hx, hy] = tm.exp(-self.hidden_gates[hx, hy] / len(self.vls) * self.gcurve)
 
-    def __init__(self, hidden_size: (int, int, int) = (4, 4, 16), vlds: [ VisibleLayerDesc ] = [], fd: io.IOBase = None):
+    def __init__(self, hidden_size: (int, int, int) = (4, 4, 16), vlds: [ EncoderVisibleLayerDesc ] = [], fd: io.IOBase = None):
         if fd is None:
             self.hidden_size = hidden_size
 
@@ -261,8 +261,8 @@ class Encoder:
         self.activations.fill(0)
 
         # Accumulate for all visible layers
-        for i in range(len(self.vls)):
-            self.accum_activations(i, vt_start, visible_states[i])
+        for vl in self.vls:
+            vl.accum_activations(vt_start, visible_states[i])
 
         self.activate()
 
@@ -271,26 +271,25 @@ class Encoder:
             self.hidden_gates.fill(0)
 
             # Accumulate gates for all visible layers
-            for i in range(len(self.vls)):
-                self.accum_gates(i)
+            for vl in self.vls:
+                vl.accum_gates(self.hidden_size, self.hidden_states)
 
             self.update_gates()
 
-            for i in range(len(self.vls)):
-                self.learn(i, vt_start, visible_states[i])
+            for vl in self.vls:
+                vl.learn(vt_start, visible_states[i])
 
     def write(self, fd: io.IOBase):
         fd.write(struct.pack("iii", *self.hidden_size))
 
         write_from_buffer(fd, self.hidden_states)
 
-        fd.write(struct.pack("i", len(self.vlds)))
+        fd.write(struct.pack("i", len(self.vls)))
 
         for i in range(len(self.vls)):
-            vld = self.vlds[i]
             vl = self.vls[i]
 
-            fd.write(struct.pack("iiiiif", *vld.size, vld.radius, vld.importance))
+            fd.write(struct.pack("iiiiif", *vl.size, vl.radius, vl.importance))
 
             vl.write_buffers(fd)
 

@@ -17,8 +17,8 @@ from .helpers import *
 from enum import IntEnum
 from dataclasses import dataclass
 
-from .encoder import Encoder
-from .decoder import Decoder
+from .encoder import *
+from .decoder import *
 
 class IOType(IntEnum):
     NONE = 0

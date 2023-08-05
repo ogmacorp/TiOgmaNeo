@@ -252,14 +252,13 @@ class Decoder:
         self.activations.fill(0)
 
         # Accumulate for all visible layers
-        for i in range(len(self.vls)):
-            self.accum_activations(i, vt_start, visible_states[i])
+        for vl in self.vls:
+            vl.accum_activations(vt_start, visible_states[i])
 
         self.activate()
 
         # Copy to prevs
         for i in range(len(self.vls)):
-            vld = self.vlds[i]
             vl = self.vls[i]
 
             vl.visible_states_prev = visible_states[i].copy()
@@ -270,13 +269,12 @@ class Decoder:
         write_from_buffer(fd, self.activations)
         write_from_buffer(fd, self.hidden_states)
 
-        fd.write(struct.pack("i", len(self.vlds)))
+        fd.write(struct.pack("i", len(self.vls)))
 
         for i in range(len(self.vls)):
-            vld = self.vlds[i]
             vl = self.vls[i]
 
-            fd.write(struct.pack("iiiii", *vld.size, vld.radius))
+            fd.write(struct.pack("iiiii", *vl.size, vl.radius))
 
             vl.write_buffers(fd)
 
