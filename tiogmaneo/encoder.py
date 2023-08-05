@@ -106,9 +106,6 @@ class EncoderVisibleLayer:
             count = it_size.x * it_size.y * self.size[2] * self.size[3]
 
             for ox, oy in ti.ndrange(it_size.x, it_size.y):
-                offset = tm.ivec2(ox, oy)
-                v_pos = it_start + offset
-
                 for vz in range(self.size[2]):
                     for vt in range(self.size[3]):
                         s += self.usages[hx, hy, hidden_state, ox, oy, vz, vt]
