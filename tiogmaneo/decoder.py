@@ -261,7 +261,7 @@ class Decoder:
         for i in range(len(self.vls)):
             vl = self.vls[i]
 
-            vl.visible_states_prev = visible_states[i].copy()
+            vl.visible_states_prev.copy_from(visible_states[i])
 
     def write(self, fd: io.IOBase):
         fd.write(struct.pack("iiii", *self.hidden_size))
