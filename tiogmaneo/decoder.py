@@ -61,7 +61,7 @@ class DecoderVisibleLayer:
     # Stepping
     @ti.kernel
     def accum_activations(self, hidden_size: tm.ivec4, vt_start: int, visible_states: ti.template(), activations: ti.template()):
-        for hx, hy, hz, ht in ti.ndrange(hidden_size):
+        for hx, hy, hz, ht in ti.ndrange(hidden_size.x, hidden_size.y, hidden_size.z, hidden_size.w):
             h_pos = tm.ivec2(hx, hy)
 
             v_center = project(h_pos, self.h_to_v)
@@ -88,7 +88,7 @@ class DecoderVisibleLayer:
             activations[hx, hy, hz, ht] += s / count
 
     @ti.kernel
-    def update_gates(self, vt_start: int):
+    def update_gates(self, hidden_size: tm.ivec4, vt_start: int):
         for vx, vy, vt in ti.ndrange(self.size[0], self.size[1], self.size[3]):
             visible_state = self.visible_states_prev[vx, vy, (vt_start + vt) % self.size[3]]
 
@@ -99,26 +99,26 @@ class DecoderVisibleLayer:
             offset_start = h_center - self.reverse_radii
 
             it_start = tm.ivec2(tm.max(0, offset_start.x), tm.max(0, offset_start.y))
-            it_end = tm.ivec2(tm.min(self.hidden_size[0], h_center.x + 1 + self.reverse_radii.x), tm.min(self.hidden_size[1], v_center.y + 1 + vl.reverse_radii.y))
+            it_end = tm.ivec2(tm.min(hidden_size.x, h_center.x + 1 + self.reverse_radii.x), tm.min(hidden_size.y, v_center.y + 1 + vl.reverse_radii.y))
 
             it_size = it_end - it_start
 
             s = 0
-            count = it_size.x * it_size.y * self.hidden_size[2] * self.hidden_size[3]
+            count = it_size.x * it_size.y * hidden_size.z * hidden_size.w
 
             for ox, oy in ti.ndrange(it_size):
                 offset = tm.ivec2(ox, oy)
                 h_pos = it_start + offset
 
-                for hz in range(self.hidden_size[2]):
-                    for ht in range(self.hidden_size[3]):
+                for hz in range(hidden_size.z):
+                    for ht in range(hidden_size.w):
                         s += vl.usages[h_pos.x, h_pos.y, hz, ht, ox, oy, visible_state, vt]
 
             self.visible_gates[vx, vy, vt] = tm.exp(-s / count * self.gcurve)
 
     @ti.kernel
-    def learn(self, vt_start: int, ht_start: int, target_temporal_horizon: int, target_hidden_states: ti.template(), activations: ti.template()):
-        for hx, hy, hz, ht in ti.ndrange(self.hidden_size):
+    def learn(self, hidden_size: tm.ivec4, vt_start: int, ht_start: int, target_temporal_horizon: int, target_hidden_states: ti.template(), activations: ti.template()):
+        for hx, hy, hz, ht in ti.ndrange(hidden_size.x, hidden_size.y, hidden_size.z, hidden_size.w):
             h_pos = tm.ivec2(hx, hy)
 
             v_center = project(h_pos, self.h_to_v)
@@ -243,17 +243,17 @@ class Decoder:
         if learn_enabled:
             # Activate gates
             for vl in self.vls:
-                vl.update_gates(vt_start)
+                vl.update_gates(self.hidden_size, vt_start)
 
             for vl in self.vls:
-                vl.learn(vt_start, ht_start, target_temporal_horizon, target_hidden_states, self.activations)
+                vl.learn(self.hidden_size, vt_start, ht_start, target_temporal_horizon, target_hidden_states, self.activations)
 
         # Clear
         self.activations.fill(0)
 
         # Accumulate for all visible layers
-        for vl in self.vls:
-            vl.accum_activations(vt_start, visible_states[i])
+        for i, vl in enumerate(self.vls):
+            vl.accum_activations(self.hidden_size, vt_start, visible_states[i], self.activations)
 
         self.activate()
 

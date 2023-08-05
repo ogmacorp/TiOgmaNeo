@@ -24,6 +24,7 @@ class IOType(IntEnum):
     NONE = 0
     PREDICTION = 1
 
+@ti.data_oriented
 class Hierarchy:
     @dataclass
     class IODesc:
@@ -41,14 +42,19 @@ class Hierarchy:
         temporal_horizon: int = 2
 
     @ti.kernel
-    def concat(size: tm.ivec2, t: int, hidden_state: ti.template(), predicted_state: ti.template(), output: ti.template()):
-        for x, y in ti.ndrange(size):
+    def concat(self, size: tm.ivec2, t: int, hidden_state: ti.template(), predicted_state: ti.template(), output: ti.template()):
+        for x, y in ti.ndrange(size.x, size.y):
             output[x, y, 0] = hidden_state[x, y]
             output[x, y, 1] = predicted_state[x, y, t]
 
     @ti.kernel
-    def get_time(size: tm.ivec2, t: int, state: ti.template(), output: ti.template()):
-        for x, y in ti.ndrange(size):
+    def set_time(self, size: tm.ivec2, t: int, state: ti.template(), output: ti.template()):
+        for x, y in ti.ndrange(size.x, size.y):
+            output[x, y, t] = state[x, y]
+
+    @ti.kernel
+    def get_time(self, size: tm.ivec2, t: int, state: ti.template(), output: ti.template()):
+        for x, y in ti.ndrange(size.x, size.y):
             output[x, y] = state[x, y, t]
 
     def __init__(self, io_descs: [ IODesc ] = [], lds: [ LayerDesc ] = [], fd: io.IOBase = None):
@@ -194,9 +200,9 @@ class Hierarchy:
 
         # Push into first layer history
         for i in range(len(self.io_descs)):
-            num_visible_columns = self.io_descs[i].size[0] * self.io_descs[i].size[1]
+            size = self.io_descs[i].size
 
-            self.histories[0][i][num_visible_columns * self.t_starts[0] : num_visible_columns * (self.t_starts[0] + 1)].copy_from(input_states[i])
+            self.set_time(tm.ivec2(size[0], size[1]), self.t_starts[0], input_states[i], self.histories[0][i])
 
         # Up-pass
         for i in range(len(self.encoders)):
@@ -221,10 +227,10 @@ class Hierarchy:
                     if self.t_starts[i_next] < 0:
                         self.t_starts[i_next] += self.lds[i_next].temporal_horizon
 
-                    num_visible_columns = self.lds[i].hidden_size[0] * self.lds[i].hidden_size[1]
-
-                    self.histories[i_next][0][num_visible_columns * self.t_starts[i_next] : num_visible_columns * (self.t_starts[i_next] + 1)].copy_from(self.encoders[i].hidden_states)
-
+                    hidden_size = self.lds[i].hidden_size
+                
+                    self.set_time(tm.ivec2(hidden_size[0], hidden_size[1]), self.t_starts[i_next], self.encoders[i].hidden_states, self.histories[i_next][0])
+                    
                     self.ticks[i_next] += 1
 
         # Down-pass
