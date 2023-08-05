@@ -215,6 +215,8 @@ class Encoder:
 
             self.hidden_gates = ti.field(param_type, shape=(hidden_size[0], hidden_size[1]))
 
+            self.vls = []
+
             for vld in vlds:
                 self.vls.append(EncoderVisibleLayer(hidden_size, vld))
 
