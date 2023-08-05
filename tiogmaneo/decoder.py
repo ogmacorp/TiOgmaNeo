@@ -302,8 +302,6 @@ class Decoder:
 
         self.activate()
 
-        print(self.activations.to_numpy())
-
         # Copy to prevs
         for i in range(len(self.vls)):
             vl = self.vls[i]
