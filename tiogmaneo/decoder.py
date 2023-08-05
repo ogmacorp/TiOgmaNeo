@@ -119,7 +119,7 @@ class DecoderVisibleLayer:
                         for ht in range(hidden_size.w):
                             s += self.usages[h_pos.x, h_pos.y, hz, ht, v_offset.x, v_offset.y, visible_state, vt]
 
-            self.visible_gates[vx, vy, vt] = ti.cast(tm.exp(-s / count * gcurve), param_type)
+            self.visible_gates[vx, vy, vt] = ti.cast(tm.exp(-float(s) / count * gcurve), param_type)
 
     @ti.kernel
     def learn(self, hidden_size: tm.ivec4, vt_start: int, ht_start: int, target_temporal_horizon: int, target_hidden_states: ti.template(), activations: ti.template(), lr: float):
@@ -222,7 +222,7 @@ class Decoder:
             total_inv = 1.0 / tm.max(limit_small, total)
 
             for hz in range(self.hidden_size[2]):
-                self.activations[hx, hy, hz, ht] = ti.cast(self.activations[hx, hy, hz, ht] / total_inv, param_type)
+                self.activations[hx, hy, hz, ht] = ti.cast(self.activations[hx, hy, hz, ht] * total_inv, param_type)
 
     def __init__(self, hidden_size: (int, int, int, int) = (4, 4, 16, 1), vlds: [ DecoderVisibleLayerDesc ] = [], fd: io.IOBase = None):
         if fd is None:
@@ -301,6 +301,8 @@ class Decoder:
             vl.accum_activations(self.hidden_size, vt_start, visible_states[i], self.activations)
 
         self.activate()
+
+        print(self.activations.to_numpy())
 
         # Copy to prevs
         for i in range(len(self.vls)):

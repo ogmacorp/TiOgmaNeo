@@ -113,7 +113,7 @@ class EncoderVisibleLayer:
                     for vt in range(self.size[3]):
                         s += self.usages[hx, hy, hidden_state, ox, oy, vz, vt]
 
-            hidden_gates[hx, hy] += ti.cast(s / count, param_type)
+            hidden_gates[hx, hy] += ti.cast(float(s) / count, param_type)
 
     @ti.kernel
     def learn(self, hidden_size: tm.ivec3, vt_start: int, hidden_states: ti.template(), visible_states: ti.template(), hidden_gates: ti.template(), lr: float):
