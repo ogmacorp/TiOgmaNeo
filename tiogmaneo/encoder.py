@@ -110,7 +110,7 @@ class EncoderVisibleLayer:
                     for vt in range(self.size[3]):
                         s += self.usages[hx, hy, hidden_state, ox, oy, vz, vt]
 
-            hidden_gates[hx, hy] += ti.cast(float(s) / count, param_type)
+            hidden_gates[hx, hy] += ti.cast(ti.cast(s, ti.float32) / count, param_type)
 
     @ti.kernel
     def learn(self, hidden_size: tm.ivec3, vt_start: int, hidden_states: ti.template(), visible_states: ti.template(), hidden_gates: ti.template(), lr: float):
@@ -160,10 +160,10 @@ class EncoderVisibleLayer:
 
             # Update, if not early stopped
             for vz in range(self.size[2]):
-                is_target = float(vz == visible_state)
-                usage_increment = int(is_target)
+                is_target = ti.cast(vz == visible_state, ti.f32)
+                usage_increment = ti.cast(is_target, ti.i32)
 
-                modulation = float(max_index != visible_state)
+                modulation = ti.cast(max_index != visible_state, ti.f32)
 
                 delta = lr * modulation * (is_target - self.reconstruction[vx, vy, vz, vt])
 
