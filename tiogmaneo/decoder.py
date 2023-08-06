@@ -104,7 +104,7 @@ class DecoderVisibleLayer:
             it_size = it_end - it_start
 
             s = 0
-            count = it_size.x * it_size.y * hidden_size.z * hidden_size.w
+            count = 0
 
             for hox, hoy in ti.ndrange(it_size.x, it_size.y):
                 h_offset = tm.ivec2(hox, hoy)
@@ -118,6 +118,8 @@ class DecoderVisibleLayer:
                     for hz in range(hidden_size.z):
                         for ht in range(hidden_size.w):
                             s += self.usages[h_pos.x, h_pos.y, hz, ht, v_offset.x, v_offset.y, visible_state, vt]
+
+                    count += hidden_size.z * hidden_size.w
 
             self.visible_gates[vx, vy, vt] = ti.cast(tm.exp(-float(s) / count * gcurve), param_type)
 
